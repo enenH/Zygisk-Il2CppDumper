@@ -17,16 +17,41 @@
 #include <linux/unistd.h>
 #include <array>
 
-void hack_start(const char *game_data_dir) {
+void hack_start(const char* game_data_dir) {
     bool load = false;
+    bool check_have_il2cpp = false;
     for (int i = 0; i < 10; i++) {
-        void *handle = xdl_open("libil2cpp.so", 0);
+        void* handle = xdl_open("libil2cpp.so", 0);
+
         if (handle) {
             load = true;
             il2cpp_api_init(handle);
             il2cpp_dump(game_data_dir);
             break;
         } else {
+            if (!check_have_il2cpp) {
+                void* libunity = xdl_open("libunity.so", 0);
+                if (libunity) {
+                    xdl_info_t* info;
+                    xdl_info(libunity, XDL_DI_DLINFO, &info);
+                    std::string lib_path = info->dli_fname;
+                    lib_path = lib_path.substr(0, lib_path.find_last_of('/'));
+                    lib_path += "/libil2cpp.so";
+                    LOGI("libil2cpp.so path %s", lib_path.data());
+                    if (access(lib_path.data(), F_OK) == -1) {
+                        LOGI("game not have libil2cpp.so,use default libunity.so");
+                        load = true;
+                        il2cpp_api_init(handle);
+                        il2cpp_dump(game_data_dir);
+                        xdl_close(libunity);
+                        break;
+                    }
+
+                    check_have_il2cpp = true;
+                    xdl_close(libunity);
+                }
+            }
+
             sleep(1);
         }
     }
@@ -35,8 +60,8 @@ void hack_start(const char *game_data_dir) {
     }
 }
 
-std::string GetLibDir(JavaVM *vms) {
-    JNIEnv *env = nullptr;
+std::string GetLibDir(JavaVM* vms) {
+    JNIEnv* env = nullptr;
     vms->AttachCurrentThread(&env, nullptr);
     jclass activity_thread_clz = env->FindClass("android/app/ActivityThread");
     if (activity_thread_clz != nullptr) {
@@ -55,11 +80,11 @@ std::string GetLibDir(JavaVM *vms) {
                     jobject application_info = env->CallObjectMethod(application,
                                                                      get_application_info);
                     jfieldID native_library_dir_id = env->GetFieldID(
-                            env->GetObjectClass(application_info), "nativeLibraryDir",
-                            "Ljava/lang/String;");
+                        env->GetObjectClass(application_info), "nativeLibraryDir",
+                        "Ljava/lang/String;");
                     if (native_library_dir_id) {
-                        auto native_library_dir_jstring = (jstring) env->GetObjectField(
-                                application_info, native_library_dir_id);
+                        auto native_library_dir_jstring = (jstring)env->GetObjectField(
+                            application_info, native_library_dir_id);
                         auto path = env->GetStringUTFChars(native_library_dir_jstring, nullptr);
                         LOGI("lib dir %s", path);
                         std::string lib_dir(path);
@@ -91,36 +116,36 @@ static std::string GetNativeBridgeLibrary() {
 
 struct NativeBridgeCallbacks {
     uint32_t version;
-    void *initialize;
+    void* initialize;
 
-    void *(*loadLibrary)(const char *libpath, int flag);
+    void*(*loadLibrary)(const char* libpath, int flag);
 
-    void *(*getTrampoline)(void *handle, const char *name, const char *shorty, uint32_t len);
+    void*(*getTrampoline)(void* handle, const char* name, const char* shorty, uint32_t len);
 
-    void *isSupported;
-    void *getAppEnv;
-    void *isCompatibleWith;
-    void *getSignalHandler;
-    void *unloadLibrary;
-    void *getError;
-    void *isPathSupported;
-    void *initAnonymousNamespace;
-    void *createNamespace;
-    void *linkNamespaces;
+    void* isSupported;
+    void* getAppEnv;
+    void* isCompatibleWith;
+    void* getSignalHandler;
+    void* unloadLibrary;
+    void* getError;
+    void* isPathSupported;
+    void* initAnonymousNamespace;
+    void* createNamespace;
+    void* linkNamespaces;
 
-    void *(*loadLibraryExt)(const char *libpath, int flag, void *ns);
+    void*(*loadLibraryExt)(const char* libpath, int flag, void* ns);
 };
 
-bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size_t length) {
+bool NativeBridgeLoad(const char* game_data_dir, int api_level, void* data, size_t length) {
     //TODO 等待houdini初始化
     sleep(5);
 
     auto libart = dlopen("libart.so", RTLD_NOW);
-    auto JNI_GetCreatedJavaVMs = (jint (*)(JavaVM **, jsize, jsize *)) dlsym(libart,
-                                                                             "JNI_GetCreatedJavaVMs");
+    auto JNI_GetCreatedJavaVMs = (jint (*)(JavaVM**, jsize, jsize*))dlsym(libart,
+                                                                          "JNI_GetCreatedJavaVMs");
     LOGI("JNI_GetCreatedJavaVMs %p", JNI_GetCreatedJavaVMs);
-    JavaVM *vms_buf[1];
-    JavaVM *vms;
+    JavaVM* vms_buf[1];
+    JavaVM* vms;
     jsize num_vms;
     jint status = JNI_GetCreatedJavaVMs(vms_buf, 1, &num_vms);
     if (status == JNI_OK && num_vms > 0) {
@@ -149,15 +174,15 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
     }
     if (nb) {
         LOGI("nb %p", nb);
-        auto callbacks = (NativeBridgeCallbacks *) dlsym(nb, "NativeBridgeItf");
+        auto callbacks = (NativeBridgeCallbacks*)dlsym(nb, "NativeBridgeItf");
         if (callbacks) {
             LOGI("NativeBridgeLoadLibrary %p", callbacks->loadLibrary);
             LOGI("NativeBridgeLoadLibraryExt %p", callbacks->loadLibraryExt);
             LOGI("NativeBridgeGetTrampoline %p", callbacks->getTrampoline);
 
             int fd = syscall(__NR_memfd_create, "anon", MFD_CLOEXEC);
-            ftruncate(fd, (off_t) length);
-            void *mem = mmap(nullptr, length, PROT_WRITE, MAP_SHARED, fd, 0);
+            ftruncate(fd, (off_t)length);
+            void* mem = mmap(nullptr, length, PROT_WRITE, MAP_SHARED, fd, 0);
             memcpy(mem, data, length);
             munmap(mem, length);
             munmap(data, length);
@@ -165,19 +190,19 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
             snprintf(path, PATH_MAX, "/proc/self/fd/%d", fd);
             LOGI("arm path %s", path);
 
-            void *arm_handle;
+            void* arm_handle;
             if (api_level >= 26) {
-                arm_handle = callbacks->loadLibraryExt(path, RTLD_NOW, (void *) 3);
+                arm_handle = callbacks->loadLibraryExt(path, RTLD_NOW, (void*)3);
             } else {
                 arm_handle = callbacks->loadLibrary(path, RTLD_NOW);
             }
             if (arm_handle) {
                 LOGI("arm handle %p", arm_handle);
-                auto init = (void (*)(JavaVM *, void *)) callbacks->getTrampoline(arm_handle,
-                                                                                  "JNI_OnLoad",
-                                                                                  nullptr, 0);
+                auto init = (void (*)(JavaVM*, void*))callbacks->getTrampoline(arm_handle,
+                                                                               "JNI_OnLoad",
+                                                                               nullptr, 0);
                 LOGI("JNI_OnLoad %p", init);
-                init(vms, (void *) game_data_dir);
+                init(vms, (void*)game_data_dir);
                 return true;
             }
             close(fd);
@@ -186,7 +211,7 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
     return false;
 }
 
-void hack_prepare(const char *game_data_dir, void *data, size_t length) {
+void hack_prepare(const char* game_data_dir, void* data, size_t length) {
     LOGI("hack thread: %d", gettid());
     int api_level = android_get_device_api_level();
     LOGI("api level: %d", api_level);
@@ -202,16 +227,16 @@ void hack_prepare(const char *game_data_dir, void *data, size_t length) {
 
 #if defined(__arm__) || defined(__aarch64__)
 
-JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM *vm, void *reserved) {
-    auto game_data_dir = (const char *) reserved;
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved) {
+    auto game_data_dir = (const char*)reserved;
     std::thread hack_thread(hack_start, game_data_dir);
     hack_thread.detach();
     return JNI_VERSION_1_6;
 }
 
-__attribute__((constructor))
+/*__attribute__((constructor))
 void init() {
     JNI_OnLoad(nullptr, nullptr);
-}
+}*/
 
 #endif
