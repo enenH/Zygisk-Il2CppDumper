@@ -32,16 +32,16 @@ void hack_start(const char* game_data_dir) {
             if (!check_have_il2cpp) {
                 void* libunity = xdl_open("libunity.so", 0);
                 if (libunity) {
-                    xdl_info_t* info;
+                    xdl_info_t info;
                     xdl_info(libunity, XDL_DI_DLINFO, &info);
-                    std::string lib_path = info->dli_fname;
+                    std::string lib_path = info.dli_fname;
                     lib_path = lib_path.substr(0, lib_path.find_last_of('/'));
                     lib_path += "/libil2cpp.so";
                     LOGI("libil2cpp.so path %s", lib_path.data());
                     if (access(lib_path.data(), F_OK) == -1) {
                         LOGI("game not have libil2cpp.so,use default libunity.so");
                         load = true;
-                        il2cpp_api_init(handle);
+                        il2cpp_api_init(libunity);
                         il2cpp_dump(game_data_dir);
                         xdl_close(libunity);
                         break;
