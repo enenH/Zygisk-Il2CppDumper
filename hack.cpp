@@ -47,6 +47,7 @@ void hack_start(const char* game_data_dir) {
                         break;
                     }
 
+
                     check_have_il2cpp = true;
                     xdl_close(libunity);
                 }
